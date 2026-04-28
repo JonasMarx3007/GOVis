@@ -25,6 +25,7 @@ ROOT = _app_root()
 DEFAULT_OBO = ROOT / "go-basic.obo"
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 ANNOTATIONS_DIR = ROOT / "annotations"
+DEFAULT_BASE_PATH = "/"
 
 
 @lru_cache(maxsize=1)
@@ -34,15 +35,25 @@ def load_graph(path: str = str(DEFAULT_OBO)) -> GOGraph:
 
 class GOVisHandler(SimpleHTTPRequestHandler):
     graph_path = str(DEFAULT_OBO)
+    base_path = DEFAULT_BASE_PATH
 
     def translate_path(self, path: str) -> str:
         static_root = FRONTEND_DIST if FRONTEND_DIST.exists() else ROOT
-        route = urlparse(path).path
+        route = self._strip_base_path(urlparse(path).path)
+        if route is None:
+            return str(static_root / "__missing__")
+        target = static_root / route.lstrip("/")
         if route == "/":
             index = static_root / "index.html"
             if index.exists():
                 return str(index)
-        return str(static_root / route.lstrip("/"))
+        if target.exists():
+            return str(target)
+        if not Path(route).suffix:
+            index = static_root / "index.html"
+            if index.exists():
+                return str(index)
+        return str(target)
 
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -56,10 +67,33 @@ class GOVisHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path.startswith("/api/"):
-            self._handle_api(parsed.path, parse_qs(parsed.query))
+        route = self._strip_base_path(parsed.path)
+        if route is None:
+            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+            return
+        if self.base_path != "/" and parsed.path == self.base_path.rstrip("/"):
+            self.send_response(HTTPStatus.MOVED_PERMANENTLY)
+            self.send_header("Location", self.base_path)
+            self.end_headers()
+            return
+        if route.startswith("/api/"):
+            self._handle_api(route, parse_qs(parsed.query))
             return
         super().do_GET()
+
+    def _strip_base_path(self, path: str) -> str | None:
+        base_path = self.base_path
+        if base_path == "/":
+            return path or "/"
+        bare_base = base_path.rstrip("/")
+        if path == bare_base:
+            return "/"
+        if path == base_path:
+            return "/"
+        if path.startswith(base_path):
+            remainder = path[len(base_path) - 1 :]
+            return remainder or "/"
+        return None
 
     def _handle_api(self, path: str, query: dict[str, list[str]]) -> None:
         graph = load_graph(self.graph_path)
@@ -301,15 +335,17 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--obo", default=str(DEFAULT_OBO))
+    parser.add_argument("--base-path", default=DEFAULT_BASE_PATH, help="Serve GOVis under a URL prefix such as /GOVis")
     parser.add_argument("--no-browser", action="store_true", help="Do not open a browser window on startup")
     args = parser.parse_args()
 
     GOVisHandler.graph_path = str(Path(args.obo).resolve())
+    GOVisHandler.base_path = _normalize_base_path(args.base_path)
     load_graph(GOVisHandler.graph_path)
 
     server = ThreadingHTTPServer((args.host, args.port), GOVisHandler)
     browser_host = "127.0.0.1" if args.host in {"0.0.0.0", "::"} else args.host
-    app_url = f"http://{browser_host}:{args.port}"
+    app_url = f"http://{browser_host}:{args.port}{GOVisHandler.base_path}"
     print(f"GOVis API running at {app_url}")
     print(f"Loaded {GOVisHandler.graph_path}")
     if not args.no_browser:
@@ -320,6 +356,13 @@ def main() -> None:
         print("\nStopping GOVis...")
     finally:
         server.server_close()
+
+
+def _normalize_base_path(path: str) -> str:
+    cleaned = f"/{path.strip().strip('/')}" if path.strip() else "/"
+    if cleaned == "/":
+        return "/"
+    return f"{cleaned}/"
 
 
 if __name__ == "__main__":

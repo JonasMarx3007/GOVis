@@ -1,6 +1,7 @@
 import type { GeneRecord, GOTerm, GraphResponse, Organism, StatsResponse } from "./types";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
+const BASE_PATH = normalizeBasePath(import.meta.env.VITE_BASE_PATH ?? import.meta.env.BASE_URL ?? "/");
+const API_BASE = import.meta.env.VITE_API_BASE ?? BASE_PATH;
 
 export async function fetchStats(): Promise<StatsResponse> {
   return getJson<StatsResponse>("/api/stats");
@@ -88,4 +89,12 @@ async function getJson<T>(path: string): Promise<T> {
     throw new Error(payload.error ?? response.statusText);
   }
   return response.json() as Promise<T>;
+}
+
+function normalizeBasePath(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed || trimmed === "/") {
+    return "";
+  }
+  return trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed;
 }
