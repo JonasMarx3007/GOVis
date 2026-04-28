@@ -1,0 +1,14 @@
+.git
+.idea
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+build/
+dist/
+run_tmp/
+frontend/node_modules/
+frontend/dist/
+govis_stdout.log
+govis_stderr.log

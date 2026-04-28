@@ -1,0 +1,12 @@
+.idea/
+__pycache__/
+backend/__pycache__/
+build/
+dist/
+run_tmp/
+frontend/node_modules/
+frontend/dist/
+*.log
+*.pyc
+*.pyo
+*.pyd
