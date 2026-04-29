@@ -10,3 +10,4 @@ frontend/dist/
 *.pyc
 *.pyo
 *.pyd
+quickgo_*
