@@ -31,6 +31,7 @@ export type Organism = {
 export type GOEdge = {
   source: string;
   target: string;
+  relation: string;
 };
 
 export type GraphResponse = {

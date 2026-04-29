@@ -54,6 +54,7 @@ export async function fetchFocusedGraph(
   randomChildLimit: boolean,
   childLimit: number,
   includeObsolete: boolean,
+  relations: string[],
 ): Promise<GraphResponse> {
   const params = new URLSearchParams({
     ancestors: String(ancestors),
@@ -78,6 +79,9 @@ export async function fetchFocusedGraph(
   }
   if (includeObsolete) {
     params.set("includeObsolete", "true");
+  }
+  if (relations.length > 0) {
+    params.set("relations", relations.join(","));
   }
   return getJson<GraphResponse>(`/api/graph?${params}`);
 }

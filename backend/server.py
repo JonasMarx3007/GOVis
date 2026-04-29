@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .annotations import AnnotationIndex, gene_json, list_organisms, load_annotations, organism_json
-from .go_parser import GOGraph, GOTerm, parse_obo
+from .go_parser import GOGraph, GOTerm, SUPPORTED_RELATIONS, parse_obo
 
 
 def _app_root() -> Path:
@@ -26,6 +26,7 @@ DEFAULT_OBO = ROOT / "go-basic.obo"
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 ANNOTATIONS_DIR = ROOT / "annotations"
 DEFAULT_BASE_PATH = "/"
+LOCAL_ALIAS_PATHS = ("/GOVis/",)
 
 
 @lru_cache(maxsize=1)
@@ -71,9 +72,10 @@ class GOVisHandler(SimpleHTTPRequestHandler):
         if route is None:
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
-        if self.base_path != "/" and parsed.path == self.base_path.rstrip("/"):
+        redirect_target = self._redirect_target(parsed.path)
+        if redirect_target:
             self.send_response(HTTPStatus.MOVED_PERMANENTLY)
-            self.send_header("Location", self.base_path)
+            self.send_header("Location", redirect_target)
             self.end_headers()
             return
         if route.startswith("/api/"):
@@ -82,18 +84,30 @@ class GOVisHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def _strip_base_path(self, path: str) -> str | None:
-        base_path = self.base_path
-        if base_path == "/":
-            return path or "/"
-        bare_base = base_path.rstrip("/")
-        if path == bare_base:
-            return "/"
-        if path == base_path:
-            return "/"
-        if path.startswith(base_path):
-            remainder = path[len(base_path) - 1 :]
-            return remainder or "/"
+        for base_path in self._accepted_base_paths():
+            if base_path == "/":
+                if path.startswith("/GOVis/"):
+                    return path.removeprefix("/GOVis") or "/"
+                return path or "/"
+            bare_base = base_path.rstrip("/")
+            if path == bare_base or path == base_path:
+                return "/"
+            if path.startswith(base_path):
+                remainder = path[len(base_path) - 1 :]
+                return remainder or "/"
         return None
+
+    def _redirect_target(self, path: str) -> str:
+        for base_path in self._accepted_base_paths():
+            if base_path != "/" and path == base_path.rstrip("/"):
+                return base_path
+        return ""
+
+    def _accepted_base_paths(self) -> tuple[str, ...]:
+        base_paths = [self.base_path]
+        if self.base_path == "/":
+            base_paths.extend(alias for alias in LOCAL_ALIAS_PATHS if alias not in base_paths)
+        return tuple(base_paths)
 
     def _handle_api(self, path: str, query: dict[str, list[str]]) -> None:
         graph = load_graph(self.graph_path)
@@ -199,6 +213,7 @@ class GOVisHandler(SimpleHTTPRequestHandler):
                     limit=_int(query, "limit", 700, 1, 5000),
                     random_child_limit=random_child_limit,
                     include_obsolete=include_obsolete,
+                    relations=_relations(query),
                 )
                 self._json(_graph_json(graph, nodes, edges, term_ids, False, annotations, gene_resolution, missing_terms))
             else:
@@ -263,6 +278,18 @@ def _bool(query: dict[str, list[str]], key: str) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _relations(query: dict[str, list[str]]) -> tuple[str, ...]:
+    raw_values = query.get("relation", []) + query.get("relations", [])
+    if not raw_values:
+        return ("is_a",)
+    items: list[str] = []
+    for raw in raw_values:
+        normalized = raw.replace(";", ",").replace("\n", ",")
+        items.extend(part.strip() for part in normalized.split(",") if part.strip())
+    selected = tuple(relation for relation in dict.fromkeys(items) if relation in SUPPORTED_RELATIONS)
+    return selected or ("is_a",)
+
+
 def _annotations(organism_key: str) -> AnnotationIndex:
     if not organism_key:
         organism_key = "goa_human"
@@ -303,7 +330,7 @@ def _term_json(
 def _graph_json(
     graph: GOGraph,
     nodes: list[GOTerm],
-    edges: list[tuple[str, str]],
+    edges: list[tuple[str, str, str]],
     selected_terms: list[str] | None = None,
     truncated: bool = False,
     annotations: AnnotationIndex | None = None,
@@ -319,7 +346,7 @@ def _graph_json(
         "maxDescendantDepth": graph.max_descendant_depth,
         "truncated": truncated,
         "nodes": [_term_json(graph, term, annotations) for term in nodes],
-        "edges": [{"source": source, "target": target} for source, target in edges],
+        "edges": [{"source": source, "target": target, "relation": relation} for source, target, relation in edges],
     }
     if annotations is not None:
         payload["organism"] = organism_json(annotations.organism)

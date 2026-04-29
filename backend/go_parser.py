@@ -5,6 +5,21 @@ from collections import defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
 
+SUPPORTED_RELATIONS = (
+    "is_a",
+    "part_of",
+    "occurs_in",
+    "regulates",
+    "positively_regulates",
+    "negatively_regulates",
+)
+
+
+@dataclass(frozen=True)
+class GORelation:
+    target: str
+    type: str
+
 
 @dataclass(frozen=True)
 class GOTerm:
@@ -13,6 +28,7 @@ class GOTerm:
     namespace: str
     definition: str
     parents: tuple[str, ...]
+    relations: tuple[GORelation, ...] = ()
     obsolete: bool = False
 
 
@@ -20,6 +36,7 @@ class GOTerm:
 class GOGraph:
     terms: dict[str, GOTerm]
     children: dict[str, tuple[str, ...]]
+    relation_children: dict[str, tuple[GORelation, ...]]
     levels: dict[str, int]
     data_version: str | None
     source: str
@@ -88,7 +105,7 @@ class GOGraph:
         namespace: str = "",
         limit: int = 700,
         random_child_limit: int | None = None,
-    ) -> tuple[list[GOTerm], list[tuple[str, str]]]:
+    ) -> tuple[list[GOTerm], list[tuple[str, str, str]]]:
         return self.subgraph_for_terms([term_id], ancestors, descendants, namespace, limit, random_child_limit)
 
     def normalize_terms(self, term_ids: list[str], include_obsolete: bool = False) -> tuple[list[str], list[str]]:
@@ -103,18 +120,27 @@ class GOGraph:
         limit: int = 700,
         random_child_limit: int | None = None,
         include_obsolete: bool = False,
-    ) -> tuple[list[GOTerm], list[tuple[str, str]]]:
+        relations: tuple[str, ...] = ("is_a",),
+    ) -> tuple[list[GOTerm], list[tuple[str, str, str]]]:
         requested, missing = self.normalize_terms(term_ids, include_obsolete)
         if not requested:
             if missing:
                 raise ValueError("None of the entered GO terms exist in the current ontology")
             raise ValueError("At least one GO term is required")
 
+        relation_filter = tuple(dict.fromkeys(relations or ("is_a",)))
         selected: set[str] = set(requested)
         protected: set[str] = set(requested)
         per_seed_limit = max(1, limit // max(1, len(requested)))
         for term_id in requested:
-            parent_nodes = self._walk(term_id, "parents", ancestors, limit, include_obsolete=include_obsolete)
+            parent_nodes = self._walk(
+                term_id,
+                "parents",
+                ancestors,
+                limit,
+                relation_filter=relation_filter,
+                include_obsolete=include_obsolete,
+            )
             protected.update(parent_nodes)
             selected.update(parent_nodes)
             selected.update(
@@ -124,6 +150,7 @@ class GOGraph:
                     descendants,
                     per_seed_limit,
                     random_child_limit,
+                    relation_filter=relation_filter,
                     include_obsolete=include_obsolete,
                 )
             )
@@ -141,11 +168,12 @@ class GOGraph:
             selected.update(remaining[: max(0, limit - len(selected))])
 
         nodes = [self.terms[node_id] for node_id in sorted(selected)]
+        relation_filter_set = set(relation_filter)
         edges = [
-            (term.id, parent_id)
+            (term.id, relation.target, relation.type)
             for term in nodes
-            for parent_id in term.parents
-            if parent_id in selected
+            for relation in term.relations
+            if relation.type in relation_filter_set and relation.target in selected
         ]
         return nodes, edges
 
@@ -177,11 +205,13 @@ class GOGraph:
         max_depth: int,
         hard_limit: int,
         random_child_limit: int | None = None,
+        relation_filter: tuple[str, ...] = ("is_a",),
         include_obsolete: bool = False,
     ) -> set[str]:
         if max_depth <= 0:
             return set()
 
+        relation_filter_set = set(relation_filter)
         seen: set[str] = set()
         queue: deque[tuple[str, int]] = deque([(start_id, 0)])
         while queue and len(seen) < hard_limit:
@@ -189,9 +219,13 @@ class GOGraph:
             if depth >= max_depth:
                 continue
             if direction == "parents":
-                neighbors = self.terms[node_id].parents
+                neighbors = tuple(
+                    relation.target
+                    for relation in self.terms[node_id].relations
+                    if relation.type in relation_filter_set
+                )
             else:
-                neighbors = self._children_for_walk(node_id, random_child_limit)
+                neighbors = self._children_for_walk(node_id, random_child_limit, relation_filter_set)
             for neighbor in neighbors:
                 if neighbor in seen or neighbor not in self.terms:
                     continue
@@ -201,16 +235,27 @@ class GOGraph:
                 queue.append((neighbor, depth + 1))
         return seen
 
-    def _children_for_walk(self, node_id: str, random_child_limit: int | None) -> tuple[str, ...]:
-        children = self.children.get(node_id, ())
-        if random_child_limit is None or len(children) <= random_child_limit:
-            return children
-        return tuple(sorted(random.sample(children, random_child_limit)))
+    def _children_for_walk(
+        self,
+        node_id: str,
+        random_child_limit: int | None,
+        relation_filter: set[str],
+    ) -> tuple[str, ...]:
+        children = tuple(
+            relation.target
+            for relation in self.relation_children.get(node_id, ())
+            if relation.type in relation_filter
+        )
+        unique_children = tuple(dict.fromkeys(children))
+        if random_child_limit is None or len(unique_children) <= random_child_limit:
+            return unique_children
+        return tuple(sorted(random.sample(list(unique_children), random_child_limit)))
 
 
 def parse_obo(path: Path) -> GOGraph:
     terms: dict[str, GOTerm] = {}
     children: dict[str, list[str]] = defaultdict(list)
+    relation_children: dict[str, list[GORelation]] = defaultdict(list)
     data_version: str | None = None
 
     current: dict[str, object] | None = None
@@ -223,12 +268,18 @@ def parse_obo(path: Path) -> GOGraph:
         if not term_id:
             return
         parents = tuple(dict.fromkeys(term_data.get("parents", ())))
+        relation_pairs = tuple(
+            GORelation(str(target), str(relation_type))
+            for relation_type, target in term_data.get("relations", ())
+            if relation_type in SUPPORTED_RELATIONS and str(target)
+        )
         terms[term_id] = GOTerm(
             id=term_id,
             name=str(term_data.get("name", term_id)),
             namespace=str(term_data.get("namespace", "")),
             definition=str(term_data.get("definition", "")),
             parents=parents,
+            relations=relation_pairs,
             obsolete=bool(term_data.get("obsolete", False)),
         )
 
@@ -242,7 +293,7 @@ def parse_obo(path: Path) -> GOGraph:
                 continue
             if line == "[Term]":
                 commit(current)
-                current = {"parents": []}
+                current = {"parents": [], "relations": []}
                 in_term = True
                 continue
             if line.startswith("[") and line.endswith("]"):
@@ -265,10 +316,20 @@ def parse_obo(path: Path) -> GOGraph:
             elif line.startswith("is_a:"):
                 parent = line.split("!", 1)[0].split(":", 1)[1].strip()
                 current.setdefault("parents", []).append(parent)
+            elif line.startswith("relationship:"):
+                parts = line.split()
+                if len(parts) >= 3 and parts[1] in SUPPORTED_RELATIONS:
+                    current.setdefault("relations", []).append((parts[1], parts[2]))
         commit(current)
 
     for term in terms.values():
         filtered_parents = tuple(parent for parent in term.parents if parent in terms)
+        filtered_relations = tuple(
+            relation for relation in term.relations if relation.target in terms and relation.type != "is_a"
+        )
+        combined_relations = tuple(
+            [*(GORelation(parent, "is_a") for parent in filtered_parents), *filtered_relations]
+        )
         if filtered_parents != term.parents:
             terms[term.id] = GOTerm(
                 id=term.id,
@@ -276,15 +337,32 @@ def parse_obo(path: Path) -> GOGraph:
                 namespace=term.namespace,
                 definition=term.definition,
                 parents=filtered_parents,
+                relations=combined_relations,
+                obsolete=term.obsolete,
+            )
+        elif combined_relations != term.relations:
+            terms[term.id] = GOTerm(
+                id=term.id,
+                name=term.name,
+                namespace=term.namespace,
+                definition=term.definition,
+                parents=filtered_parents,
+                relations=combined_relations,
                 obsolete=term.obsolete,
             )
         for parent_id in filtered_parents:
             children[parent_id].append(term.id)
+        for relation in combined_relations:
+            relation_children[relation.target].append(GORelation(term.id, relation.type))
 
     frozen_children = {key: tuple(sorted(value)) for key, value in children.items()}
+    frozen_relation_children = {
+        key: tuple(sorted(value, key=lambda item: (item.type, item.target))) for key, value in relation_children.items()
+    }
     return GOGraph(
         terms=terms,
         children=frozen_children,
+        relation_children=frozen_relation_children,
         levels=_compute_levels(terms),
         data_version=data_version,
         source=str(path),

@@ -2,6 +2,8 @@
 
 GOVis is a local viewer for Gene Ontology `is_a` graphs. It maps GO terms or genes into an interactive ontology graph, hides obsolete terms by default, and can show organism-specific gene annotations from GAF files.
 
+The interface is based on [AmiGO 2](https://amigo.geneontology.org/amigo) and [QuickGO](https://www.ebi.ac.uk/QuickGO/).
+
 ![GOVis screenshot](example.png)
 
 ## Features

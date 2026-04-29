@@ -27,8 +27,8 @@ const CARD_WIDTH = 226;
 const HEADER_HEIGHT = 30;
 const LINE_HEIGHT = 23;
 const MIN_BODY_HEIGHT = 70;
-const X_GAP = 22;
-const Y_GAP = 48;
+const X_GAP = 34;
+const Y_GAP = 62;
 const PAD_X = 36;
 const PAD_Y = 34;
 const READABLE_MARGIN = 24;
@@ -95,13 +95,13 @@ export async function layoutReadableGraph(nodes: GOTerm[], edges: GOEdge[]): Pro
       "elk.spacing.edgeNode": "18",
       "elk.layered.spacing.nodeNodeBetweenLayers": "76",
       "elk.layered.spacing.edgeNodeBetweenLayers": "18",
-      "elk.layered.spacing.edgeEdgeBetweenLayers": "12",
+      "elk.layered.spacing.edgeEdgeBetweenLayers": "20",
       "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
       "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
       "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
       "elk.layered.nodePlacement.bk.fixedAlignment": "BALANCED",
       "elk.layered.nodePlacement.bk.edgeStraightening": "IMPROVE_STRAIGHTNESS",
-      "elk.layered.mergeEdges": "true",
+      "elk.layered.mergeEdges": "false",
       "elk.layered.unnecessaryBendpoints": "true",
     },
     children: [...nodes]
@@ -161,6 +161,9 @@ function layoutClassicGraph(nodes: GOTerm[], edges: GOEdge[]): LayoutGraph {
   const childMap = new Map<string, string[]>();
 
   for (const edge of edges) {
+    if (edge.relation !== "is_a") {
+      continue;
+    }
     if (!nodeMap.has(edge.source) || !nodeMap.has(edge.target)) {
       continue;
     }
@@ -196,16 +199,14 @@ function layoutClassicGraph(nodes: GOTerm[], edges: GOEdge[]): LayoutGraph {
   let width = 0;
   let y = PAD_Y;
   const sortedRanks = [...buckets.keys()].sort((a, b) => a - b);
+  const orderedRows = orderClassicRows(sortedRanks, buckets, parentMap, childMap);
 
   for (const rank of sortedRanks) {
-    const row = [...(buckets.get(rank) ?? [])].sort((a, b) => {
-      const aChildren = childMap.get(a.id)?.length ?? 0;
-      const bChildren = childMap.get(b.id)?.length ?? 0;
-      return bChildren - aChildren || a.id.localeCompare(b.id);
-    });
+    const row = orderedRows.get(rank) ?? [];
     const rowHeights = row.map((node) => heightForName(node.name));
     const rowHeight = Math.max(...rowHeights, HEADER_HEIGHT + MIN_BODY_HEIGHT);
-    const rowWidth = row.length * CARD_WIDTH + Math.max(0, row.length - 1) * X_GAP;
+    const gapX = rowGapX(row.length);
+    const rowWidth = row.length * CARD_WIDTH + Math.max(0, row.length - 1) * gapX;
     width = Math.max(width, rowWidth + PAD_X * 2);
     let x = PAD_X;
 
@@ -218,9 +219,9 @@ function layoutClassicGraph(nodes: GOTerm[], edges: GOEdge[]): LayoutGraph {
         height: rowHeights[index],
         rank,
       });
-      x += CARD_WIDTH + X_GAP;
+      x += CARD_WIDTH + gapX;
     });
-    y += rowHeight + Y_GAP;
+    y += rowHeight + rowGapY(rank, orderedRows, parentMap, childMap);
   }
 
   const centered = centerRows(positioned, width);
@@ -267,11 +268,82 @@ function centerRows(nodes: PositionedNode[], width: number): PositionedNode[] {
   }
   const result: PositionedNode[] = [];
   for (const row of ranks.values()) {
-    const rowWidth = row.length * CARD_WIDTH + Math.max(0, row.length - 1) * X_GAP;
+    const gapX = rowGapX(row.length);
+    const rowWidth = row.length * CARD_WIDTH + Math.max(0, row.length - 1) * gapX;
     const offset = (width - rowWidth) / 2 - PAD_X;
     result.push(...row.map((node) => ({ ...node, x: node.x + offset })));
   }
   return result;
+}
+
+function orderClassicRows(
+  sortedRanks: number[],
+  buckets: Map<number, GOTerm[]>,
+  parentMap: Map<string, string[]>,
+  childMap: Map<string, string[]>,
+): Map<number, GOTerm[]> {
+  const rows = new Map(
+    sortedRanks.map((rank) => [
+      rank,
+      [...(buckets.get(rank) ?? [])].sort((a, b) => {
+        const aChildren = childMap.get(a.id)?.length ?? 0;
+        const bChildren = childMap.get(b.id)?.length ?? 0;
+        return bChildren - aChildren || a.id.localeCompare(b.id);
+      }),
+    ]),
+  );
+
+  for (let sweep = 0; sweep < 4; sweep += 1) {
+    const topOrder = buildOrderMap(rows);
+    for (const rank of sortedRanks.slice(1)) {
+      const row = rows.get(rank) ?? [];
+      row.sort((a, b) => barycenter(a.id, parentMap, topOrder) - barycenter(b.id, parentMap, topOrder) || a.id.localeCompare(b.id));
+    }
+    const bottomOrder = buildOrderMap(rows);
+    for (const rank of [...sortedRanks].reverse().slice(1)) {
+      const row = rows.get(rank) ?? [];
+      row.sort((a, b) => barycenter(a.id, childMap, bottomOrder) - barycenter(b.id, childMap, bottomOrder) || a.id.localeCompare(b.id));
+    }
+  }
+
+  return rows;
+}
+
+function buildOrderMap(rows: Map<number, GOTerm[]>): Map<string, number> {
+  const order = new Map<string, number>();
+  for (const row of rows.values()) {
+    row.forEach((node, index) => order.set(node.id, index));
+  }
+  return order;
+}
+
+function barycenter(nodeId: string, neighborMap: Map<string, string[]>, order: Map<string, number>): number {
+  const neighbors = neighborMap.get(nodeId) ?? [];
+  const values = neighbors.map((neighbor) => order.get(neighbor)).filter((value): value is number => value !== undefined);
+  if (values.length === 0) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function rowGapX(nodeCount: number): number {
+  return X_GAP + Math.min(58, Math.max(0, nodeCount - 2) * 4);
+}
+
+function rowGapY(
+  rank: number,
+  rows: Map<number, GOTerm[]>,
+  parentMap: Map<string, string[]>,
+  childMap: Map<string, string[]>,
+): number {
+  const row = rows.get(rank) ?? [];
+  const previous = rows.get(rank - 1) ?? [];
+  const fanout = Math.max(
+    ...row.map((node) => (parentMap.get(node.id)?.length ?? 0) + (childMap.get(node.id)?.length ?? 0)),
+    ...previous.map((node) => (parentMap.get(node.id)?.length ?? 0) + (childMap.get(node.id)?.length ?? 0)),
+    0,
+  );
+  return Y_GAP + Math.min(88, Math.max(row.length, previous.length) * 4 + fanout * 6);
 }
 
 function makeClassicEdge(edge: GOEdge, source?: PositionedNode, target?: PositionedNode): PositionedEdge | null {

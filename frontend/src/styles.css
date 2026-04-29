@@ -140,6 +140,40 @@ select {
   font-size: 13px;
 }
 
+.relation-picks {
+  display: grid;
+  gap: 8px;
+}
+
+.relation-option {
+  display: grid;
+  grid-template-columns: 18px 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+}
+
+.relation-option input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #087da0;
+}
+
+.relation-line,
+.legend-line {
+  display: inline-block;
+  width: 24px;
+  height: 0;
+  border-top: 3px solid var(--legend-color, #4f5b66);
+  border-radius: 999px;
+}
+
+.relation-line.dashed,
+.legend-line.dashed {
+  border-top-style: dashed;
+}
+
 .mode-toggle {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -278,6 +312,78 @@ output {
   font-weight: 800;
 }
 
+.legend-panel {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #d8dee3;
+  padding-top: 14px;
+}
+
+.legend-panel h2 {
+  margin: 0;
+  color: #52606a;
+  font-size: 13px;
+}
+
+.legend-group {
+  display: grid;
+  gap: 8px;
+}
+
+.legend-item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: #4f5b63;
+  font-size: 13px;
+}
+
+.legend-toggle {
+  grid-template-columns: 18px 28px minmax(0, 1fr);
+  cursor: pointer;
+}
+
+.legend-toggle input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #087da0;
+}
+
+.legend-toggle.muted {
+  opacity: 0.55;
+}
+
+.legend-box {
+  position: relative;
+  display: inline-block;
+  width: 24px;
+  height: 16px;
+  border: 1.8px solid #101010;
+  border-radius: 4px;
+  background: var(--namespace-body, #ffffff);
+}
+
+.legend-box::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 5px;
+  background: var(--namespace-header, #7c8792);
+  border-radius: 3px 3px 0 0;
+}
+
+.connector-line {
+  --legend-color: #4f5b66;
+  border-top-width: 4px;
+}
+
+.direct-line {
+  --legend-color: #4f5b66;
+  border-top-width: 6px;
+}
+
 .term-detail {
   border-top: 1px solid #d8dee3;
   padding-top: 14px;
@@ -373,6 +479,38 @@ output {
   line-height: 1.35;
 }
 
+.reference-links {
+  margin-top: auto;
+  border-top: 1px solid #d8dee3;
+  padding-top: 14px;
+}
+
+.reference-links h2,
+.reference-links p {
+  margin: 0;
+}
+
+.reference-links h2 {
+  color: #52606a;
+  font-size: 13px;
+}
+
+.reference-links p {
+  margin-top: 8px;
+  color: #4f5b63;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.reference-links a {
+  color: #087da0;
+  text-decoration: none;
+}
+
+.reference-links a:hover {
+  text-decoration: underline;
+}
+
 .graph-pane {
   display: block;
   min-width: 0;
@@ -436,33 +574,71 @@ output {
 
 .edges path {
   fill: none;
-  stroke: #101010;
-  stroke-width: 3.2;
+  stroke: #4f5b66;
+  stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .edges .arrow-head {
-  fill: #101010;
+  fill: #4f5b66;
   stroke: none;
 }
 
-.edges .selected-edge path {
-  stroke: #d6c900;
+.edges .relation-is_a path {
+  stroke: #000000;
 }
 
-.edges .selected-edge .arrow-head {
-  fill: #d6c900;
-  stroke: none;
+.edges .relation-is_a .arrow-head {
+  fill: #000000;
+}
+
+.edges .relation-part_of path {
+  stroke: #0000ff;
+}
+
+.edges .relation-part_of .arrow-head {
+  fill: #0000ff;
+}
+
+.edges .relation-occurs_in path {
+  stroke: #008080;
+}
+
+.edges .relation-occurs_in .arrow-head {
+  fill: #008080;
+}
+
+.edges .relation-regulates path {
+  stroke: #ffc000;
+}
+
+.edges .relation-regulates .arrow-head {
+  fill: #ffc000;
+}
+
+.edges .relation-positively_regulates path {
+  stroke: #00ff00;
+}
+
+.edges .relation-positively_regulates .arrow-head {
+  fill: #00ff00;
+}
+
+.edges .relation-negatively_regulates path {
+  stroke: #ff0000;
+}
+
+.edges .relation-negatively_regulates .arrow-head {
+  fill: #ff0000;
 }
 
 .edges .indirect-edge path {
-  stroke: #1e72cf;
+  stroke-width: 4.5;
 }
 
-.edges .indirect-edge .arrow-head {
-  fill: #1e72cf;
-  stroke: none;
+.edges .selected-edge path {
+  stroke-width: 6.4;
 }
 
 .go-node {
@@ -481,11 +657,30 @@ output {
 }
 
 .go-node.selected .body {
-  fill: #fffcc7;
+  fill: #ffffcc;
+  stroke: #cfb437;
+  stroke-width: 3.2;
+}
+
+.go-node.obsolete.selected .body {
+  stroke: #c42828;
+  stroke-width: 3.2;
 }
 
 .go-node .header {
-  fill: #087da0;
+  fill: #7c8792;
+}
+
+.go-node.namespace-biological_process .header {
+  fill: #00709b;
+}
+
+.go-node.namespace-molecular_function .header {
+  fill: #404040;
+}
+
+.go-node.namespace-cellular_component .header {
+  fill: #93a661;
 }
 
 .go-node .id {
@@ -502,6 +697,29 @@ output {
   font-weight: 500;
   text-anchor: middle;
   dominant-baseline: middle;
+}
+
+.plot-legend {
+  pointer-events: none;
+}
+
+.plot-legend text {
+  font-size: 12px;
+}
+
+.legend-namespace-label {
+  fill: #ffffff;
+  font-weight: 700;
+}
+
+.legend-box-label,
+.legend-relation-label {
+  fill: #000000;
+}
+
+.legend-relation-label {
+  font-size: 13px;
+  font-weight: 500;
 }
 
 @keyframes spin {

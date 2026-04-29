@@ -1,7 +1,9 @@
 import { Download, Search, ZoomIn, ZoomOut, RotateCcw, Network, GitBranch, Loader2 } from "lucide-react";
+import type { CSSProperties } from "react";
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { fetchFocusedGraph, fetchOrganisms, fetchStats, fetchTermGenes, searchGenes, searchTerms } from "./api";
 import { layoutGraph, layoutReadableGraph, type LayoutGraph, type LayoutMode, wrapName } from "./layout";
+import { DEFAULT_RELATIONS, NAMESPACE_STYLES, namespaceClass, RELATION_STYLES, relationClass } from "./theme";
 import type { GeneRecord, GOEdge, GOTerm, GraphResponse, Organism, StatsResponse } from "./types";
 
 const DEFAULT_TERM = "GO:0019319";
@@ -25,6 +27,8 @@ export function App() {
   const [randomChildLimit, setRandomChildLimit] = useState(false);
   const [childLimit, setChildLimit] = useState(20);
   const [includeObsolete, setIncludeObsolete] = useState(false);
+  const [selectedRelations, setSelectedRelations] = useState<string[]>(DEFAULT_RELATIONS);
+  const [showLegend, setShowLegend] = useState(true);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("classic");
   const [trimConnections, setTrimConnections] = useState(false);
   const [scale, setScale] = useState(0.82);
@@ -98,6 +102,7 @@ export function App() {
   const selectedTerm = graph?.nodes.find((node) => node.id === detailId);
   const maxAncestorDepth = stats?.maxAncestorDepth ?? graph?.maxAncestorDepth ?? 1;
   const maxDescendantDepth = stats?.maxDescendantDepth ?? graph?.maxDescendantDepth ?? 1;
+  const svgExtraWidth = showLegend ? 410 : 0;
 
   useEffect(() => {
     setAncestors((value) => Math.min(value, maxAncestorDepth));
@@ -194,6 +199,7 @@ export function App() {
       randomChildLimit,
       childLimit,
       includeObsolete,
+      selectedRelations,
     )
       .then((payload) => {
         setGraph(payload);
@@ -206,6 +212,16 @@ export function App() {
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
+  }
+
+  function toggleRelation(relation: string) {
+    setSelectedRelations((current) => {
+      if (current.includes(relation)) {
+        const next = current.filter((entry) => entry !== relation);
+        return next.length > 0 ? next : DEFAULT_RELATIONS;
+      }
+      return [...current, relation];
+    });
   }
 
   function chooseTerm(term: GOTerm) {
@@ -392,6 +408,23 @@ export function App() {
           <span>Include obsolete terms</span>
         </label>
 
+        <div className="field">
+          <span>Relations</span>
+          <div className="relation-picks">
+            {RELATION_STYLES.map((relation) => (
+              <label key={relation.key} className="relation-option">
+                <input
+                  type="checkbox"
+                  checked={selectedRelations.includes(relation.key)}
+                  onChange={() => toggleRelation(relation.key)}
+                />
+                <span className={`relation-line ${relation.dashed ? "dashed" : ""}`} style={legendColorStyle(relation.color)} />
+                <span>{relation.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
         <label className="check-row">
           <input
             type="checkbox"
@@ -448,6 +481,11 @@ export function App() {
           </dl>
         )}
 
+        <label className="check-row">
+          <input type="checkbox" checked={showLegend} onChange={(event) => setShowLegend(event.target.checked)} />
+          <span>Show legend</span>
+        </label>
+
         {selectedTerm && (
           <section className="term-detail">
             <h2>{selectedTerm.id}</h2>
@@ -490,6 +528,21 @@ export function App() {
             )}
           </section>
         )}
+
+        <section className="reference-links">
+          <h2>References</h2>
+          <p>
+            GOVis is based on the Gene Ontology browsers{" "}
+            <a href="https://amigo.geneontology.org/amigo" target="_blank" rel="noreferrer">
+              AmiGO 2
+            </a>{" "}
+            and{" "}
+            <a href="https://www.ebi.ac.uk/QuickGO/" target="_blank" rel="noreferrer">
+              QuickGO
+            </a>
+            .
+          </p>
+        </section>
       </aside>
 
       <main className="graph-pane">
@@ -515,17 +568,17 @@ export function App() {
             <svg
               ref={svgRef}
               className="go-graph"
-              width={laidOut.width * scale}
+              width={(laidOut.width + svgExtraWidth) * scale}
               height={laidOut.height * scale}
-              viewBox={`0 0 ${laidOut.width} ${laidOut.height}`}
+              viewBox={`0 0 ${laidOut.width + svgExtraWidth} ${laidOut.height}`}
               role="img"
-              aria-label="Gene Ontology is_a graph"
+              aria-label="Gene Ontology relation graph"
             >
               <g className="edges">
                 {laidOut.edges.map((edge) => (
                   <g
-                    key={`${edge.source}-${edge.target}`}
-                    className={connectionGraph?.edgeClasses.get(edgeKey(edge.source, edge.target)) ?? ""}
+                    key={edgeKey(edge.source, edge.target, edge.relation)}
+                    className={`${relationClass(edge.relation)} ${connectionGraph?.edgeClasses.get(edgeKey(edge.source, edge.target, edge.relation)) ?? ""}`.trim()}
                   >
                     <path d={edge.path} />
                     <path d={edge.markerPath} className="arrow-head" />
@@ -536,7 +589,7 @@ export function App() {
                 {laidOut.nodes.map((node) => (
                   <g
                     key={node.id}
-                    className={`go-node ${selectedTerms.includes(node.id) ? "selected" : ""} ${node.obsolete ? "obsolete" : ""}`}
+                    className={`go-node ${namespaceClass(node.namespace)} ${selectedTerms.includes(node.id) ? "selected" : ""} ${node.obsolete ? "obsolete" : ""}`}
                     transform={`translate(${node.x}, ${node.y})`}
                     onClick={() => {
                       setDetailId(node.id);
@@ -561,6 +614,7 @@ export function App() {
                   </g>
                 ))}
               </g>
+              {showLegend && <PlotLegend x={laidOut.width + 18} y={18} selectedRelations={selectedRelations} />}
             </svg>
           )}
         </div>
@@ -602,6 +656,61 @@ function parseGenes(value: string): string[] {
   );
 }
 
+function legendColorStyle(color: string): CSSProperties {
+  return { ["--legend-color" as string]: color } as CSSProperties;
+}
+
+function PlotLegend({ x, y, selectedRelations }: { x: number; y: number; selectedRelations: string[] }) {
+  const relationEntries = RELATION_STYLES.filter((relation) => selectedRelations.includes(relation.key));
+  const namespaceEntries = [
+    NAMESPACE_STYLES.biological_process,
+    NAMESPACE_STYLES.molecular_function,
+    NAMESPACE_STYLES.cellular_component,
+  ];
+
+  return (
+    <g className="plot-legend" transform={`translate(${x}, ${y})`}>
+      {namespaceEntries.map((entry, index) => (
+        <g key={entry.label} transform={`translate(0, ${index * 34})`}>
+          <rect width="138" height="22" fill={entry.header} />
+          <text x="69" y="15" textAnchor="middle" className="legend-namespace-label">
+            {entry.label}
+          </text>
+        </g>
+      ))}
+
+      {relationEntries.map((relation, index) => {
+        const top = 138 + index * 50;
+        return (
+          <g key={relation.key} transform={`translate(0, ${top})`}>
+            <text x="82" y="-10" textAnchor="middle" className="legend-relation-label">
+              {relation.label}
+            </text>
+            <rect x="0" y="-8" width="24" height="24" fill="#FFFFFF" stroke="#000000" strokeWidth="1" />
+            <text x="12" y="8" textAnchor="middle" className="legend-box-label">
+              A
+            </text>
+            <line
+              x1="32"
+              y1="4"
+              x2="132"
+              y2="4"
+              stroke={relation.color}
+              strokeWidth="2.8"
+              strokeDasharray={relation.dashed ? "6 4" : undefined}
+            />
+            <path d="M 132 4 L 124 0 L 124 8 Z" fill={relation.color} />
+            <rect x="146" y="-8" width="24" height="24" fill="#FFFFFF" stroke="#000000" strokeWidth="1" />
+            <text x="158" y="8" textAnchor="middle" className="legend-box-label">
+              B
+            </text>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
 type ConnectionGraph = {
   nodes: GOTerm[];
   edges: GOEdge[];
@@ -616,7 +725,7 @@ function buildConnectionGraph(graph: GraphResponse, selectedTerms: string[], tri
 
   for (const edge of visibleEdges) {
     if (selectedSet.has(edge.source) && selectedSet.has(edge.target)) {
-      directSelectedEdges.add(edgeKey(edge.source, edge.target));
+      directSelectedEdges.add(edgeKey(edge.source, edge.target, edge.relation));
     }
   }
 
@@ -624,7 +733,7 @@ function buildConnectionGraph(graph: GraphResponse, selectedTerms: string[], tri
   const edgeClasses = new Map<string, string>();
 
   for (const edge of visibleEdges) {
-    const key = edgeKey(edge.source, edge.target);
+    const key = edgeKey(edge.source, edge.target, edge.relation);
     if (directSelectedEdges.has(key)) {
       edgeClasses.set(key, "selected-edge");
     } else if (connectorEdges.has(key)) {
@@ -647,16 +756,16 @@ function buildConnectionGraph(graph: GraphResponse, selectedTerms: string[], tri
     }
   }
   for (const edge of visibleEdges) {
-    if (connectorEdges.has(edgeKey(edge.source, edge.target))) {
+    if (connectorEdges.has(edgeKey(edge.source, edge.target, edge.relation))) {
       keptNodeIds.add(edge.source);
       keptNodeIds.add(edge.target);
     }
   }
 
-  const trimmedEdges = visibleEdges.filter((edge) => connectorEdges.has(edgeKey(edge.source, edge.target)));
+  const trimmedEdges = visibleEdges.filter((edge) => connectorEdges.has(edgeKey(edge.source, edge.target, edge.relation)));
   const trimmedEdgeClasses = new Map<string, string>();
   for (const edge of trimmedEdges) {
-    const key = edgeKey(edge.source, edge.target);
+    const key = edgeKey(edge.source, edge.target, edge.relation);
     const edgeClass = edgeClasses.get(key);
     if (edgeClass) {
       trimmedEdgeClasses.set(key, edgeClass);
@@ -703,7 +812,7 @@ function collectShortestPathEdges(nodes: GOTerm[], edges: GOEdge[], selectedSet:
         const forward = edgeOnShortestPath(edge.source, edge.target, distFromStart, distFromTarget, shortestDistance);
         const backward = edgeOnShortestPath(edge.target, edge.source, distFromStart, distFromTarget, shortestDistance);
         if (forward || backward) {
-          connectorEdges.add(edgeKey(edge.source, edge.target));
+          connectorEdges.add(edgeKey(edge.source, edge.target, edge.relation));
         }
       }
     }
@@ -747,8 +856,8 @@ function edgeOnShortestPath(
   return nextDistance === startDistance + 1 && startDistance + 1 + targetDistance === shortestDistance;
 }
 
-function edgeKey(source: string, target: string): string {
-  return `${source}->${target}`;
+function edgeKey(source: string, target: string, relation: string): string {
+  return `${source}->${target}:${relation}`;
 }
 
 function readableLayoutFallbackReason(graph: ConnectionGraph): string {
@@ -817,20 +926,41 @@ function serializeFigureSvg(svg: SVGSVGElement): string {
   const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
   style.textContent = `
     .go-graph { background: #ffffff; }
-    .edges path { fill: none; stroke: #101010; stroke-width: 3.2; stroke-linecap: round; }
-    .edges .arrow-head { fill: #101010; stroke: none; }
-    .edges .selected-edge path { stroke: #d6c900; }
-    .edges .selected-edge .arrow-head { fill: #d6c900; stroke: none; }
-    .edges .indirect-edge path { stroke: #1e72cf; }
-    .edges .indirect-edge .arrow-head { fill: #1e72cf; stroke: none; }
+    .edges path { fill: none; stroke: #4f5b66; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+    .edges .arrow-head { fill: #4f5b66; stroke: none; }
+    .edges .indirect-edge path { stroke-width: 4.5; }
+    .edges .selected-edge path { stroke-width: 6.4; }
+    ${relationExportStyles()}
     .go-node .body { fill: #ffffff; stroke: #101010; stroke-width: 2.2; }
-    .go-node.selected .body { fill: #fffcc7; }
-    .go-node .header { fill: #087da0; }
+    .go-node.selected .body { fill: #ffffcc; stroke: #cfb437; stroke-width: 3.2; }
+    .go-node.obsolete .body { stroke: #c42828; stroke-width: 2.8; }
+    .go-node.obsolete.selected .body { stroke: #c42828; stroke-width: 3.2; }
+    .go-node .header { fill: #7c8792; }
+    ${namespaceExportStyles()}
     .go-node .id { fill: #ffffff; font-size: 18px; font-weight: 600; text-anchor: middle; dominant-baseline: middle; }
     .go-node .name { fill: #1c242a; font-size: 18px; font-weight: 500; text-anchor: middle; dominant-baseline: middle; }
   `;
   clone.insertBefore(style, clone.firstChild);
   return `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(clone)}`;
+}
+
+function relationExportStyles(): string {
+  return RELATION_STYLES.map(
+    (relation) =>
+      `.edges .${relationClass(relation.key)} path { stroke: ${relation.color}; }\n` +
+      `.edges .${relationClass(relation.key)} .arrow-head { fill: ${relation.color}; }\n` +
+      (relation.dashed ? `.edges .${relationClass(relation.key)} path { stroke-dasharray: 6 4; }` : ""),
+  ).join("\n");
+}
+
+function namespaceExportStyles(): string {
+  return Object.entries(NAMESPACE_STYLES)
+    .map(
+      ([namespace, style]) =>
+        `.go-node.${namespaceClass(namespace)} .body { fill: ${style.body}; }\n` +
+        `.go-node.${namespaceClass(namespace)} .header { fill: ${style.header}; }`,
+    )
+    .join("\n");
 }
 
 function svgDimensions(svg: SVGSVGElement): { width: number; height: number } {
