@@ -1,4 +1,4 @@
-import { Download, Search, ZoomIn, ZoomOut, RotateCcw, Network, GitBranch, Loader2 } from "lucide-react";
+import { Download, Search, ZoomIn, ZoomOut, RotateCcw, Network, GitBranch, Loader2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { CSSProperties } from "react";
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { fetchFocusedGraph, fetchOrganisms, fetchStats, fetchTermGenes, searchGenes, searchTerms } from "./api";
@@ -31,6 +31,7 @@ export function App() {
   const [showLegend, setShowLegend] = useState(true);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("classic");
   const [trimConnections, setTrimConnections] = useState(false);
+  const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [scale, setScale] = useState(0.82);
   const [loading, setLoading] = useState(true);
   const [layouting, setLayouting] = useState(false);
@@ -249,16 +250,31 @@ export function App() {
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <Network size={27} />
-          <div>
-            <h1>GOVis</h1>
-            <p>{stats?.dataVersion ?? "Gene Ontology"}</p>
+    <div className={`app-shell ${sidebarExpanded ? "" : "sidebar-collapsed"}`.trim()}>
+      <aside className={`sidebar ${sidebarExpanded ? "" : "collapsed"}`.trim()}>
+        <div className="sidebar-top">
+          <div className="brand">
+            <Network size={27} />
+            {sidebarExpanded && (
+              <div>
+                <h1>GOVis</h1>
+                <p>{stats?.dataVersion ?? "Gene Ontology"}</p>
+              </div>
+            )}
           </div>
+          <button
+            type="button"
+            className="sidebar-toggle"
+            onClick={() => setSidebarExpanded((value) => !value)}
+            title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
+            aria-label={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
+          >
+            {sidebarExpanded ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+          </button>
         </div>
 
+        {sidebarExpanded && (
+          <>
         <div className="field">
           <span>Search by</span>
           <div className="mode-toggle">
@@ -543,10 +559,23 @@ export function App() {
             .
           </p>
         </section>
+          </>
+        )}
       </aside>
 
       <main className="graph-pane">
-        <div className="graph-toolbar">
+        {!sidebarExpanded && (
+          <button
+            type="button"
+            className="sidebar-float-toggle"
+            onClick={() => setSidebarExpanded(true)}
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+          >
+            <PanelLeftOpen size={18} />
+          </button>
+        )}
+        <div className={`graph-toolbar ${sidebarExpanded ? "" : "with-floating-toggle"}`.trim()}>
           <span>{graph ? `${graph.nodes.length.toLocaleString()} nodes / ${graph.edges.length.toLocaleString()} edges` : "Loading GO"}</span>
           {trimConnections && connectionGraph && <strong>{connectionGraph.nodes.length.toLocaleString()} visible after trim</strong>}
           {graph?.truncated && <strong>Limited graph</strong>}
