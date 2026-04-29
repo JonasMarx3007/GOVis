@@ -1,0 +1,15 @@
+services:
+  govis:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_BASE_PATH: "/GOVis/"
+        GOVIS_BASE_PATH: "/GOVis"
+    image: govis:latest
+    container_name: govis
+    restart: unless-stopped
+    ports:
+      - "18083:8000"
+    environment:
+      GOVIS_BASE_PATH: "/GOVis"
